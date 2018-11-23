@@ -71,6 +71,7 @@ static struct option long_options[] = {
   {"params",     no_argument,       0, 'P' },
   {"no-alpha",   no_argument, &master_alpha, 0 },
   {"no-thumb-alpha",   no_argument, &thumb_alpha, 0 },
+  {"avif",       no_argument,       0, 'A' },
   {0,         0,                 0,  0 }
 };
 
@@ -92,7 +93,9 @@ void show_help(const char* argv0)
             << "  -o, --output    output filename (optional)\n"
             << "  -v, --verbose   enable logging output (more -v will increase logging level)\n"
             << "  -P, --params    show all encoder parameters\n"
-            << "  -p              set encoder parameter (NAME=VALUE)\n";
+            << "  -p              set encoder parameter (NAME=VALUE)\n"
+            << "  -A, --avif      encode as AVIF\n"
+    ;
 }
 
 
@@ -641,13 +644,14 @@ int main(int argc, char** argv)
   int logging_level = 0;
   bool option_show_parameters = false;
   int thumbnail_bbox_size = 0;
+  bool enc_av1f = false;
 
   std::vector<std::string> raw_params;
 
 
   while (true) {
     int option_index = 0;
-    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:", long_options, &option_index);
+    int c = getopt_long(argc, argv, "hq:Lo:vPp:t:A", long_options, &option_index);
     if (c == -1)
       break;
 
@@ -675,6 +679,9 @@ int main(int argc, char** argv)
       break;
     case 't':
       thumbnail_bbox_size = atoi(optarg);
+      break;
+    case 'A':
+      enc_av1f = true;
       break;
     }
   }
@@ -714,7 +721,9 @@ int main(int argc, char** argv)
 
 #define MAX_ENCODERS 5
   const heif_encoder_descriptor* encoder_descriptors[MAX_ENCODERS];
-  int count = heif_context_get_encoder_descriptors(context.get(), heif_compression_HEVC, nullptr,
+  int count = heif_context_get_encoder_descriptors(context.get(),
+                                                   enc_av1f ? heif_compression_AV1 : heif_compression_HEVC,
+                                                   nullptr,
                                                    encoder_descriptors, MAX_ENCODERS);
 
   if (count>0) {
