@@ -170,10 +170,10 @@ getopt_long(int nargc, char ** nargv, char * options, struct option * long_optio
 			return(-1);
 		}
 		if ((has_equal = strchr(current_argv, '=')) != NULL) {
-			current_argv_len = has_equal - current_argv;
+			current_argv_len = (int)(has_equal - current_argv);
 			has_equal++;
 		} else
-			current_argv_len = strlen(current_argv);
+			current_argv_len = (int)strlen(current_argv);
 
 		for (i = 0; long_options[i].name; i++) { 
 			if (strncmp(current_argv, long_options[i].name, current_argv_len))

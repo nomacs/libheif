@@ -97,7 +97,7 @@ static int32_t readvec_signed(const std::vector<uint8_t>& data,int& ptr,int len)
   val &= ~high_bit;
 
   if (negative) {
-    return -(high_bit-val);
+    return -int32_t(high_bit-val);
   }
   else {
     return val;

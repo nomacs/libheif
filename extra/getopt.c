@@ -60,7 +60,7 @@ int	opterr = 1,		/* if error message should be printed */
 char	*optarg;		/* argument associated with option */
 
 static char * _progname __P((char *));
-int getopt_internal __P((int, char * const *, const char *));
+int getopt_internal __P((int, char **, const char *));
 
 static char *
 _progname(char * nargv0)
