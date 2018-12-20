@@ -29,6 +29,8 @@ if(UNIX)
   include (${CMAKE_ROOT}/Modules/FindPkgConfig.cmake)
   pkg_check_modules (LIBDE265 libde265)
   pkg_check_modules (X265 x265)
+elseif(MSVC)
+  find_package(libde265)
 endif()
 
 if(LIBDE265_FOUND)
@@ -38,6 +40,8 @@ if(LIBDE265_FOUND)
     heif_decoder_libde265.cc
     heif_decoder_libde265.h
   )
+  include_directories(${LIBDE265_INCLUDE_DIR})
+
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${LIBDE265_CFLAGS}")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LIBDE265_CFLAGS}")
 endif()
@@ -72,3 +76,24 @@ endif()
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
   SET_TARGET_PROPERTIES(${LIBHEIF_LIBRARY_NAME} PROPERTIES COMPILE_FLAGS "-fPIC")
 endif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+
+
+# status
+MESSAGE(STATUS "")
+MESSAGE(STATUS "----------------------------------------------------------------------------------")
+MESSAGE(STATUS " ${PROJECT_NAME} - ${PACKAGE_VERSION}")
+MESSAGE(STATUS "")
+
+if(LIBDE265_FOUND)
+    MESSAGE(STATUS " libheif will be compiled with LIBDE265 support .................. YES")
+ELSE()
+    MESSAGE(STATUS " libheif will be compiled with LIBDE265 support .................. NO")
+ENDIF()
+
+if(X265_FOUND)
+    MESSAGE(STATUS " libheif will be compiled with X265 support ...................... YES")
+ELSE()
+    MESSAGE(STATUS " libheif will be compiled with X265 support ...................... NO")
+ENDIF()
+
+MESSAGE(STATUS "----------------------------------------------------------------------------------")
