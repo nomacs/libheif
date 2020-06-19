@@ -40,6 +40,23 @@ heif::Error heif::Error::Ok(heif_error_Ok);
 
 
 
+Fraction::Fraction(int32_t num,int32_t den)
+{
+  // Reduce resolution of fraction until we are in a safe range.
+  // We need this as adding fractions may lead to very large denominators
+  // (e.g. 0x10000 * 0x10000 > 0x100000000 -> overflow, leading to integer 0)
+
+  while (denominator > MAX_FRACTION_VALUE || denominator < -MAX_FRACTION_VALUE) {
+    numerator /= 2;
+    denominator /= 2;
+  }
+
+  while (numerator > MAX_FRACTION_VALUE || numerator < -MAX_FRACTION_VALUE) {
+    numerator /= 2;
+    denominator /= 2;
+  }
+}
+
 Fraction Fraction::operator+(const Fraction& b) const
 {
   if (denominator == b.denominator) {
@@ -87,6 +104,10 @@ int Fraction::round() const
   return (numerator + denominator/2)/denominator;
 }
 
+bool Fraction::is_valid() const
+{
+  return denominator != 0;
+}
 
 uint32_t from_fourcc(const char* string)
 {
@@ -140,7 +161,7 @@ std::string heif::BoxHeader::get_type_string() const
     sstr << std::setw(2);
 
     for (int i=0;i<16;i++) {
-      if (i==8 || i==12 || i==16 || i==20) {
+      if (i==4 || i==6 || i==8 || i==10) {
         sstr << '-';
       }
 
@@ -431,6 +452,10 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
     box = std::make_shared<Box_hvcC>(hdr);
     break;
 
+  case fourcc("av1C"):
+    box = std::make_shared<Box_av1C>(hdr);
+    break;
+
   case fourcc("idat"):
     box = std::make_shared<Box_idat>(hdr);
     break;
@@ -493,7 +518,7 @@ Error Box::read(BitstreamRange& range, std::shared_ptr<heif::Box>* result)
 
   // Security check: make sure that box size does not exceed int64 size.
 
-  if (hdr.get_box_size() > uint64_t(std::numeric_limits<int64_t>::max())) {
+  if (hdr.get_box_size() > (uint64_t)std::numeric_limits<int64_t>::max()) {
     return Error(heif_error_Invalid_input,
                  heif_suberror_Invalid_box_size);
   }
@@ -1048,6 +1073,14 @@ Error Box_iloc::read_data(const Item& item,
 
       // --- make sure that all data is available
 
+      if (extent.offset > MAX_FILE_POS ||
+          item.base_offset > MAX_FILE_POS ||
+          extent.length > MAX_FILE_POS) {
+        return Error(heif_error_Invalid_input,
+                     heif_suberror_Security_limit_exceeded,
+                     "iloc data pointers out of allowed range");
+      }
+
       StreamReader::grow_status status = istr->wait_for_file_size(extent.offset + item.base_offset + extent.length);
       if (status == StreamReader::size_beyond_eof) {
         // Out-of-bounds
@@ -1073,6 +1106,7 @@ Error Box_iloc::read_data(const Item& item,
 
       bool success = istr->seek(extent.offset + item.base_offset);
       assert(success);
+      (void)success;
 
 
       // --- read data
@@ -2139,6 +2173,11 @@ Error Box_clap::parse(BitstreamRange& range)
   m_horizontal_offset.denominator = range.read32();
   m_vertical_offset.numerator   = range.read32();
   m_vertical_offset.denominator = range.read32();
+  if (!m_clean_aperture_width.is_valid() || !m_clean_aperture_height.is_valid() ||
+      !m_horizontal_offset.is_valid() || !m_vertical_offset.is_valid()) {
+    return Error(heif_error_Invalid_input,
+                 heif_suberror_Invalid_fractional_number);
+  }
 
   return range.get_error();
 }
@@ -2644,6 +2683,113 @@ Error Box_hvcC::write(StreamWriter& writer) const
 }
 
 
+Error Box_av1C::parse(BitstreamRange& range)
+{
+  //parse_full_box_header(range);
+
+  uint8_t byte;
+
+  auto& c = m_configuration; // abbreviation
+
+  byte = range.read8();
+  if ((byte & 0x80) == 0) {
+    // error: marker bit not set
+  }
+
+  c.version = byte & 0x7F;
+
+  byte = range.read8();
+  c.seq_profile = (byte>>5) & 0x7;
+  c.seq_level_idx_0 = byte & 0x1f;
+
+  byte = range.read8();
+  c.seq_tier_0 = (byte >> 7) & 1;
+  c.high_bitdepth = (byte >> 6) & 1;
+  c.twelve_bit = (byte >> 5) & 1;
+  c.monochrome = (byte >> 4) & 1;
+  c.chroma_subsampling_x = (byte >> 3) & 1;
+  c.chroma_subsampling_y = (byte >> 2) & 1;
+  c.chroma_sample_position = byte & 3;
+
+  byte = range.read8();
+  c.initial_presentation_delay_present = (byte >> 4) & 1;
+  if (c.initial_presentation_delay_present) {
+    c.initial_presentation_delay_minus_one = byte & 0x0F;
+  }
+
+  const int64_t configOBUs_bytes = range.get_remaining_bytes();
+  m_config_OBUs.resize(configOBUs_bytes);
+
+  if (!range.read(m_config_OBUs.data(), configOBUs_bytes)) {
+    // error
+  }
+
+  return range.get_error();
+}
+
+
+Error Box_av1C::write(StreamWriter& writer) const
+{
+  size_t box_start = reserve_box_header_space(writer);
+
+  const auto& c = m_configuration; // abbreviation
+
+  writer.write8(c.version | 0x80);
+
+  writer.write8((uint8_t)(((c.seq_profile & 0x7) << 5) |
+                          (c.seq_level_idx_0 & 0x1f)));
+
+  writer.write8((uint8_t)((c.seq_tier_0 ? 0x80 : 0) |
+                          (c.high_bitdepth ? 0x40 : 0) |
+                          (c.twelve_bit ? 0x20 : 0) |
+                          (c.monochrome ? 0x10 : 0) |
+                          (c.chroma_subsampling_x ? 0x08 : 0) |
+                          (c.chroma_subsampling_y ? 0x04 : 0) |
+                          (c.chroma_sample_position & 0x03)));
+
+  writer.write8(0); // TODO initial_presentation_delay
+
+  prepend_header(writer, box_start);
+
+  return Error::Ok;
+}
+
+
+std::string Box_av1C::dump(Indent& indent) const
+{
+  std::ostringstream sstr;
+  sstr << Box::dump(indent);
+
+  const auto& c = m_configuration; // abbreviation
+
+  sstr << indent << "version: " << ((int)c.version) << "\n"
+       << indent << "seq_profile: " << ((int)c.seq_profile) << "\n"
+       << indent << "seq_level_idx_0: " << ((int)c.seq_level_idx_0) << "\n"
+       << indent << "high_bitdepth: " << ((int)c.high_bitdepth) << "\n"
+       << indent << "twelve_bit: " << ((int)c.twelve_bit) << "\n"
+       << indent << "chroma_subsampling_x: " << ((int)c.chroma_subsampling_x) << "\n"
+       << indent << "chroma_subsampling_y: " << ((int)c.chroma_subsampling_y) << "\n"
+       << indent << "chroma_sample_position: " << ((int)c.chroma_sample_position) << "\n"
+       << indent << "initial_presentation_delay: ";
+
+  if (c.initial_presentation_delay_present) {
+    sstr << c.initial_presentation_delay_minus_one+1 << "\n";
+  }
+  else {
+    sstr << "not present\n";
+  }
+
+  sstr << indent << "config OBUs:";
+  for (size_t i=0;i<m_config_OBUs.size();i++) {
+    sstr << " " << std::hex << std::setfill('0') << std::setw(2)
+         << ((int)m_config_OBUs[i]);
+  }
+  sstr << std::dec << "\n";
+
+  return sstr.str();
+}
+
+
 Error Box_idat::parse(BitstreamRange& range)
 {
   //parse_full_box_header(range);
@@ -2686,6 +2832,13 @@ Error Box_idat::read_data(std::shared_ptr<StreamReader> istr,
 
 
   // move to start of data
+  if (start > (uint64_t)m_data_start_pos + get_box_size()) {
+    return Error(heif_error_Invalid_input,
+                 heif_suberror_End_of_data);
+  } else if (length > get_box_size() || start + length > get_box_size()) {
+    return Error(heif_error_Invalid_input,
+                 heif_suberror_End_of_data);
+  }
 
   StreamReader::grow_status status = istr->wait_for_file_size((int64_t)m_data_start_pos + start + length);
   if (status == StreamReader::size_beyond_eof ||
@@ -2698,6 +2851,7 @@ Error Box_idat::read_data(std::shared_ptr<StreamReader> istr,
   bool success;
   success = istr->seek(m_data_start_pos + (std::streampos)start);
   assert(success);
+  (void)success;
 
   // reserve space for the data in the output array
 

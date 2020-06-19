@@ -67,6 +67,11 @@ namespace heif {
 
     void set_max_decoding_threads(int max_threads) { m_max_decoding_threads = max_threads; }
 
+    void set_maximum_image_size_limit(int maximum_size) {
+      m_maximum_image_width_limit = maximum_size;
+      m_maximum_image_height_limit = maximum_size;
+    }
+
     Error read(std::shared_ptr<StreamReader> reader);
     Error read_from_file(const char* input_filename);
     Error read_from_memory(const void* data, size_t size, bool copy);
@@ -77,6 +82,7 @@ namespace heif {
       ~Image();
 
       void set_resolution(int w,int h) { m_width=w; m_height=h; }
+      void set_ispe_resolution(int w,int h) { m_ispe_width=w; m_ispe_height=h; }
 
       void set_primary(bool flag=true) { m_is_primary=flag; }
 
@@ -87,12 +93,13 @@ namespace heif {
       int get_width() const { return m_width; }
       int get_height() const { return m_height; }
 
-      bool is_primary() const { return m_is_primary; }
+      int get_ispe_width() const { return m_ispe_width; }
+      int get_ispe_height() const { return m_ispe_height; }
 
-      Error decode_image(std::shared_ptr<HeifPixelImage>& img,
-                         heif_colorspace colorspace = heif_colorspace_undefined,
-                         heif_chroma chroma = heif_chroma_undefined,
-                         const struct heif_decoding_options* options = nullptr) const;
+      int get_luma_bits_per_pixel() const;
+      int get_chroma_bits_per_pixel() const;
+
+      bool is_primary() const { return m_is_primary; }
 
 
       // -- thumbnails
@@ -154,15 +161,21 @@ namespace heif {
                                  const struct heif_encoding_options* options,
                                  enum heif_image_input_class input_class);
 
-      std::shared_ptr<color_profile> get_color_profile() const { return m_color_profile; }
+      Error encode_image_as_av1(std::shared_ptr<HeifPixelImage> image,
+                                struct heif_encoder* encoder,
+                                const struct heif_encoding_options* options,
+                                enum heif_image_input_class input_class);
 
-      void set_color_profile(std::shared_ptr<color_profile> profile) { m_color_profile = profile; };
+      std::shared_ptr<const color_profile> get_color_profile() const { return m_color_profile; }
+
+      void set_color_profile(std::shared_ptr<const color_profile> profile) { m_color_profile = profile; };
 
     private:
       HeifContext* m_heif_context;
 
       heif_item_id m_id = 0;
       uint32_t m_width=0, m_height=0;
+      uint32_t m_ispe_width=0, m_ispe_height=0; // original image resolution
       bool     m_is_primary = false;
 
       bool     m_is_thumbnail = false;
@@ -183,7 +196,7 @@ namespace heif {
 
       std::vector<std::shared_ptr<ImageMetadata>> m_metadata;
 
-      std::shared_ptr<color_profile> m_color_profile;
+      std::shared_ptr<const color_profile> m_color_profile;
     };
 
     std::vector<std::shared_ptr<Image>> get_top_level_images() { return m_top_level_images; }
@@ -194,8 +207,14 @@ namespace heif {
 
     bool is_image(heif_item_id ID) const;
 
-    Error decode_image(heif_item_id ID, std::shared_ptr<HeifPixelImage>& img,
-                       const struct heif_decoding_options* options = nullptr) const;
+    Error decode_image_user(heif_item_id ID, std::shared_ptr<HeifPixelImage>& img,
+                            heif_colorspace out_colorspace,
+                            heif_chroma out_chroma,
+                            const struct heif_decoding_options* options = nullptr) const;
+
+    Error decode_image_planar(heif_item_id ID, std::shared_ptr<HeifPixelImage>& img,
+                              heif_colorspace out_colorspace,
+                              const struct heif_decoding_options* options = nullptr) const;
 
     std::string debug_dump_boxes() const;
 
@@ -232,6 +251,9 @@ namespace heif {
 
     Error add_XMP_metadata(std::shared_ptr<Image> master_image, const void* data, int size);
 
+    Error add_generic_metadata(std::shared_ptr<Image> master_image, const void* data, int size,
+                               const char* item_type, const char* content_type);
+
     void write(StreamWriter& writer);
 
   private:
@@ -251,6 +273,9 @@ namespace heif {
 
     int m_max_decoding_threads = 4;
 
+    uint32_t m_maximum_image_width_limit;
+    uint32_t m_maximum_image_height_limit;
+
     Error interpret_heif_file();
 
     void remove_top_level_image(std::shared_ptr<Image> image);
@@ -269,6 +294,8 @@ namespace heif {
     Error decode_overlay_image(heif_item_id ID,
                                std::shared_ptr<HeifPixelImage>& img,
                                const std::vector<uint8_t>& overlay_data) const;
+
+    Error get_id_of_non_virtual_child_image(heif_item_id in, heif_item_id& out) const;
   };
 }
 

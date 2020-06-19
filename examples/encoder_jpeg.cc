@@ -45,6 +45,7 @@ void JpegEncoder::UpdateDecodingOptions(const struct heif_image_handle* handle,
     struct heif_decoding_options *options) const {
   if (HasExifMetaData(handle)) {
     options->ignore_transformations = 1;
+    options->convert_hdr_to_8bit = 1;
   }
 }
 
@@ -174,6 +175,13 @@ bool JpegEncoder::Encode(const struct heif_image_handle* handle,
     jpeg_write_icc_profile(&cinfo, profile_data, (unsigned int)profile_size);
     free(profile_data);
   }
+
+
+  if (heif_image_get_bits_per_pixel(image, heif_channel_Y) != 8) {
+    fprintf(stderr, "JPEG writer cannot handle image with >8 bpp.\n");
+    return false;
+  }
+
 
   int stride_y;
   const uint8_t* row_y = heif_image_get_plane_readonly(image, heif_channel_Y,

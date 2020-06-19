@@ -26,15 +26,10 @@
 #ifndef EXAMPLE_ENCODER_JPEG_H
 #define EXAMPLE_ENCODER_JPEG_H
 
-#include <setjmp.h>
-#include <stddef.h>
-#include <stdio.h>
+#include <csetjmp>
+#include <cstddef>
+#include <cstdio>
 
-// Prevent duplicate definition for libjpeg-turbo v2.0
-// Note: these 'undef's are only a workaround for a libjpeg-turbo-v2.0 bug and
-// should be removed again later. Bug has been fixed in libjpeg-turbo-v2.0.1.
-#undef HAVE_STDDEF_H
-#undef HAVE_STDLIB_H
 #include <jpeglib.h>
 
 #include <string>
@@ -49,7 +44,7 @@ class JpegEncoder : public Encoder {
     return heif_colorspace_YCbCr;
   }
 
-  heif_chroma chroma(bool has_alpha) const override {
+  heif_chroma chroma(bool has_alpha, int bit_depth) const override {
     return heif_chroma_420;
   }
 

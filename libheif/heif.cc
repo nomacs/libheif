@@ -104,6 +104,12 @@ heif_filetype_result heif_check_filetype(const uint8_t* data, int len)
     if (brand == heif_heic) {
       return heif_filetype_yes_supported;
     }
+    else if (brand == heif_heix) {
+      return heif_filetype_yes_supported;
+    }
+    else if (brand == heif_avif) {
+      return heif_filetype_yes_supported;
+    }
     else if (brand == heif_unknown_brand) {
       return heif_filetype_no;
     }
@@ -159,8 +165,91 @@ heif_brand heif_main_brand(const uint8_t* data, int len)
   else if (strcmp(brand, "mif1")==0) {
     return heif_mif1;
   }
+  else if (strcmp(brand, "msf1")==0) {
+    return heif_msf1;
+  }
+  else if (strcmp(brand, "avif")==0) {
+    return heif_avif;
+  }
+  else if (strcmp(brand, "avis")==0) {
+    return heif_avis;
+  }
   else {
     return heif_unknown_brand;
+  }
+}
+
+
+enum class TriBool {
+  No, Yes, Unknown
+};
+
+TriBool is_jpeg(const uint8_t* data, int len) {
+  if (len < 12) {
+    return TriBool::Unknown;
+  }
+
+  if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF && data[3] == 0xE0 &&
+      data[4] == 0x00 && data[5] == 0x10 && data[6] == 0x4A && data[7] == 0x46 &&
+      data[8] == 0x49 && data[9] == 0x46 && data[10] == 0x00 && data[11] == 0x01) {
+    return TriBool::Yes;
+  }
+  if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF && data[3] == 0xE1 &&
+      data[6] == 0x45 && data[7] == 0x78 && data[8] == 0x69 && data[9] == 0x66 &&
+      data[10] == 0x00 && data[11] == 0x00) {
+    return TriBool::Yes;
+  }
+  else {
+    return TriBool::No;
+  }
+}
+
+
+TriBool is_png(const uint8_t* data, int len) {
+  if (len < 8) {
+    return TriBool::Unknown;
+  }
+
+  if (data[0] == 0x89 && data[1]==0x50 && data[2]==0x4E && data[3]==0x47 &&
+      data[4] == 0x0D && data[5]==0x0A && data[6]==0x1A && data[7]==0x0A) {
+    return TriBool::Yes;
+  }
+  else {
+    return TriBool::No;
+  }
+}
+
+
+const char* heif_get_file_mime_type(const uint8_t* data, int len)
+{
+  heif_brand mainBrand = heif_main_brand(data,len);
+
+  if (mainBrand == heif_heic ||
+      mainBrand == heif_heix ||
+      mainBrand == heif_heim ||
+      mainBrand == heif_heis) {
+    return "image/heic";
+  }
+  else if (mainBrand == heif_mif1) {
+    return "image/heif";
+  }
+  if (mainBrand == heif_hevc ||
+      mainBrand == heif_hevx ||
+      mainBrand == heif_hevm ||
+      mainBrand == heif_hevs) {
+    return "image/heic-sequence";
+  }
+  else if (mainBrand == heif_msf1) {
+    return "image/heif-sequence";
+  }
+  else if (is_jpeg(data,len)==TriBool::Yes) {
+    return "image/jpeg";
+  }
+  else if (is_png(data,len)==TriBool::Yes) {
+    return "image/png";
+  }
+  else {
+    return "";
   }
 }
 
@@ -247,7 +336,7 @@ heif_error heif_context_get_primary_image_handle(heif_context* ctx, heif_image_h
 
   *img = new heif_image_handle();
   (*img)->image = std::move(primary_image);
-  //(*img)->context = ctx->context;
+  (*img)->context = ctx->context;
 
   return Error::Ok.error_struct(ctx->context.get());
 }
@@ -315,9 +404,9 @@ int heif_context_get_list_of_top_level_image_IDs(struct heif_context* ctx,
 
 struct heif_error heif_context_get_image_handle(struct heif_context* ctx,
                                                 heif_item_id id,
-                                                struct heif_image_handle** img)
+                                                struct heif_image_handle** imgHdl)
 {
-  if (!img) {
+  if (!imgHdl) {
     Error err(heif_error_Usage_error,
               heif_suberror_Null_pointer_argument);
     return err.error_struct(ctx->context.get());
@@ -338,9 +427,9 @@ struct heif_error heif_context_get_image_handle(struct heif_context* ctx,
     return err.error_struct(ctx->context.get());
   }
 
-  *img = new heif_image_handle();
-  (*img)->image = image;
-  // (*img)->context = ctx->context;
+  *imgHdl = new heif_image_handle();
+  (*imgHdl)->image = image;
+  (*imgHdl)->context = ctx->context;
 
   return Error::Ok.error_struct(ctx->context.get());
 }
@@ -390,6 +479,7 @@ heif_error heif_image_handle_get_thumbnail(const struct heif_image_handle* handl
     if (thumb->get_id() == thumbnail_id) {
       *out_thumbnail_handle = new heif_image_handle();
       (*out_thumbnail_handle)->image = thumb;
+      (*out_thumbnail_handle)->context = handle->context;
 
       return Error::Ok.error_struct(handle->image.get());
     }
@@ -422,9 +512,43 @@ int heif_image_handle_get_height(const struct heif_image_handle* handle)
 }
 
 
+int heif_image_handle_get_ispe_width(const struct heif_image_handle* handle)
+{
+  if (handle && handle->image) {
+    return handle->image->get_ispe_width();
+  }
+  else {
+    return 0;
+  }
+}
+
+
+int heif_image_handle_get_ispe_height(const struct heif_image_handle* handle)
+{
+  if (handle && handle->image) {
+    return handle->image->get_ispe_height();
+  }
+  else {
+    return 0;
+  }
+}
+
+
 int heif_image_handle_has_alpha_channel(const struct heif_image_handle* handle)
 {
   return handle->image->get_alpha_channel() != nullptr;
+}
+
+
+int heif_image_handle_get_luma_bits_per_pixel(const struct heif_image_handle* handle)
+{
+  return handle->image->get_luma_bits_per_pixel();
+}
+
+
+int heif_image_handle_get_chroma_bits_per_pixel(const struct heif_image_handle* handle)
+{
+  return handle->image->get_chroma_bits_per_pixel();
 }
 
 
@@ -496,13 +620,16 @@ struct heif_error heif_image_handle_get_depth_image_handle(const struct heif_ima
 {
   auto depth_image = handle->image->get_depth_channel();
 
-  *out_depth_handle = new heif_image_handle();
-  (*out_depth_handle)->image = depth_image;
-
   if (depth_image->get_id() != depth_id) {
+    *out_depth_handle = nullptr;
+
     Error err(heif_error_Usage_error, heif_suberror_Nonexisting_item_referenced);
     return err.error_struct(handle->image.get());
   }
+
+  *out_depth_handle = new heif_image_handle();
+  (*out_depth_handle)->image = depth_image;
+  (*out_depth_handle)->context = handle->context;
 
   return Error::Ok.error_struct(handle->image.get());
 }
@@ -512,7 +639,7 @@ heif_decoding_options* heif_decoding_options_alloc()
 {
   auto options = new heif_decoding_options;
 
-  options->version = 1;
+  options->version = 2;
 
   options->ignore_transformations = false;
 
@@ -520,6 +647,10 @@ heif_decoding_options* heif_decoding_options_alloc()
   options->on_progress = NULL;
   options->end_progress = NULL;
   options->progress_user_data = NULL;
+
+  // version 2
+
+  options->convert_hdr_to_8bit = false;
 
   return options;
 }
@@ -539,10 +670,12 @@ struct heif_error heif_decode_image(const struct heif_image_handle* in_handle,
 {
   std::shared_ptr<HeifPixelImage> img;
 
-  Error err = in_handle->image->decode_image(img,
-                                             colorspace,
-                                             chroma,
-                                             options);
+  heif_item_id id = in_handle->image->get_id();
+
+  Error err = in_handle->context->decode_image_user(id, img,
+                                                    colorspace,
+                                                    chroma,
+                                                    options);
   if (err.error_code != heif_error_Ok) {
     return err.error_struct(in_handle->image.get());
   }
@@ -605,6 +738,12 @@ int heif_image_get_height(const struct heif_image* img,enum heif_channel channel
 
 int heif_image_get_bits_per_pixel(const struct heif_image* img,enum heif_channel channel)
 {
+  return img->image->get_storage_bits_per_pixel(channel);
+}
+
+
+int heif_image_get_bits_per_pixel_range(const struct heif_image* img,enum heif_channel channel)
+{
   return img->image->get_bits_per_pixel(channel);
 }
 
@@ -618,10 +757,16 @@ int heif_image_has_channel(const struct heif_image* img, enum heif_channel chann
 struct heif_error heif_image_add_plane(struct heif_image* image,
                                        heif_channel channel, int width, int height, int bit_depth)
 {
-  image->image->add_plane(channel, width, height, bit_depth);
-
-  struct heif_error err = { heif_error_Ok, heif_suberror_Unspecified, Error::kSuccess };
-  return err;
+  if (!image->image->add_plane(channel, width, height, bit_depth)) {
+    struct heif_error err = { heif_error_Memory_allocation_error,
+                              heif_suberror_Unspecified,
+                              "Cannot allocate memory for image plane" };
+    return err;
+  }
+  else {
+    struct heif_error err = { heif_error_Ok, heif_suberror_Unspecified, Error::kSuccess };
+    return err;
+  }
 }
 
 
@@ -712,6 +857,14 @@ struct heif_error heif_image_set_nclx_color_profile(struct heif_image* image,
 
   return error_Ok;
 }
+
+
+/*
+void heif_image_remove_color_profile(struct heif_image* image)
+{
+  image->image->set_color_profile(nullptr);
+}
+*/
 
 
 int heif_image_handle_get_number_of_metadata_blocks(const struct heif_image_handle* handle,
@@ -841,7 +994,7 @@ heif_color_profile_type heif_image_handle_get_color_profile_type(const struct he
 size_t heif_image_handle_get_raw_color_profile_size(const struct heif_image_handle* handle)
 {
   auto profile = handle->image->get_color_profile();
-  auto raw_profile = std::dynamic_pointer_cast<color_profile_raw>(profile);
+  auto raw_profile = std::dynamic_pointer_cast<const color_profile_raw>(profile);
   if (raw_profile) {
     return raw_profile->get_data().size();
   }
@@ -863,18 +1016,11 @@ static struct color_primaries_table_entry {
   { -1 }
 };
 
-struct heif_error heif_image_handle_get_nclx_color_profile(const struct heif_image_handle* handle,
-                                                           struct heif_color_profile_nclx** out_data)
-{
-  auto profile = handle->image->get_color_profile();
-  auto nclx_profile = std::dynamic_pointer_cast<color_profile_nclx>(profile);
-  if (nclx_profile) {
-    if (!out_data) {
-      Error err(heif_error_Usage_error,
-                heif_suberror_Null_pointer_argument);
-      return err.error_struct(handle->image.get());
-    }
 
+static Error get_nclx_color_profile(std::shared_ptr<const color_profile_nclx> nclx_profile,
+                                    struct heif_color_profile_nclx** out_data)
+{
+  if (nclx_profile) {
     *out_data = (struct heif_color_profile_nclx*)malloc(sizeof(struct heif_color_profile_nclx));
 
     struct heif_color_profile_nclx* nclx = *out_data;
@@ -906,14 +1052,30 @@ struct heif_error heif_image_handle_get_nclx_color_profile(const struct heif_ima
     nclx->color_primary_white_x = c.wx;
     nclx->color_primary_white_y = c.wy;
 
-    return error_Ok;
+    return Error::Ok;
   }
   else {
-    Error err(heif_error_Usage_error,
-              heif_suberror_Unspecified);
-    return err.error_struct(handle->image.get());
+    return Error(heif_error_Usage_error,
+                 heif_suberror_Unspecified);
   }
 }
+
+struct heif_error heif_image_handle_get_nclx_color_profile(const struct heif_image_handle* handle,
+                                                           struct heif_color_profile_nclx** out_data)
+{
+  if (!out_data) {
+    Error err(heif_error_Usage_error,
+              heif_suberror_Null_pointer_argument);
+    return err.error_struct(handle->image.get());
+  }
+
+  auto profile = handle->image->get_color_profile();
+  auto nclx_profile = std::dynamic_pointer_cast<const color_profile_nclx>(profile);
+  Error err = get_nclx_color_profile(nclx_profile, out_data);
+
+  return err.error_struct(handle->image.get());
+}
+
 
 struct heif_error heif_image_handle_get_raw_color_profile(const struct heif_image_handle* handle,
                                                           void* out_data)
@@ -925,7 +1087,7 @@ struct heif_error heif_image_handle_get_raw_color_profile(const struct heif_imag
   }
 
   auto profile = handle->image->get_color_profile();
-  auto raw_profile = std::dynamic_pointer_cast<color_profile_raw>(profile);
+  auto raw_profile = std::dynamic_pointer_cast<const color_profile_raw>(profile);
   if (raw_profile) {
     memcpy(out_data,
            raw_profile->get_data().data(),
@@ -934,6 +1096,74 @@ struct heif_error heif_image_handle_get_raw_color_profile(const struct heif_imag
 
   return Error::Ok.error_struct(handle->image.get());
 }
+
+
+
+enum heif_color_profile_type heif_image_get_color_profile_type(const struct heif_image* image)
+{
+  auto profile = image->image->get_color_profile();
+  if (!profile) {
+    return heif_color_profile_type_not_present;
+  }
+  else {
+    return (heif_color_profile_type)profile->get_type();
+  }
+}
+
+
+size_t heif_image_get_raw_color_profile_size(const struct heif_image* image)
+{
+  auto profile = image->image->get_color_profile();
+  auto raw_profile = std::dynamic_pointer_cast<const color_profile_raw>(profile);
+  if (raw_profile) {
+    return raw_profile->get_data().size();
+  }
+  else {
+    return 0;
+  }
+}
+
+
+struct heif_error heif_image_get_raw_color_profile(const struct heif_image* image,
+                                                   void* out_data)
+{
+  if (out_data==nullptr) {
+    Error err(heif_error_Usage_error,
+              heif_suberror_Null_pointer_argument);
+    return err.error_struct(image->image.get());
+  }
+
+  auto profile = image->image->get_color_profile();
+  auto raw_profile = std::dynamic_pointer_cast<const color_profile_raw>(profile);
+  if (raw_profile) {
+    memcpy(out_data,
+           raw_profile->get_data().data(),
+           raw_profile->get_data().size());
+  }
+
+  return Error::Ok.error_struct(image->image.get());
+}
+
+
+struct heif_error heif_image_get_nclx_color_profile(const struct heif_image* image,
+                                                    struct heif_color_profile_nclx** out_data)
+{
+  if (!out_data) {
+    Error err(heif_error_Usage_error,
+              heif_suberror_Null_pointer_argument);
+    return err.error_struct(image->image.get());
+  }
+
+  auto profile = image->image->get_color_profile();
+  auto nclx_profile = std::dynamic_pointer_cast<const color_profile_nclx>(profile);
+  Error err = get_nclx_color_profile(nclx_profile, out_data);
+
+  return err.error_struct(image->image.get());
+}
+
+
+
+
 
 // DEPRECATED
 struct heif_error heif_register_decoder(heif_context* heif, const heif_decoder_plugin* decoder_plugin)
@@ -1357,7 +1587,7 @@ struct heif_error heif_encoder_parameter_string_valid_values(struct heif_encoder
 
 
 
-bool parse_boolean(const char* value)
+static bool parse_boolean(const char* value)
 {
   if (strcmp(value,"true")==0) {
     return true;
@@ -1542,6 +1772,7 @@ struct heif_error heif_context_encode_image(struct heif_context* ctx,
   if (out_image_handle) {
     *out_image_handle = new heif_image_handle;
     (*out_image_handle)->image = image;
+    (*out_image_handle)->context = ctx->context;
   }
 
   return error_Ok;
@@ -1580,8 +1811,12 @@ struct heif_error heif_context_encode_thumbnail(struct heif_context* ctx,
                                                thumbnail_image);
   if (error != Error::Ok) {
     return error.error_struct(ctx->context.get());
+  } else if (!thumbnail_image) {
+    Error err(heif_error_Usage_error,
+              heif_suberror_Invalid_parameter_value,
+              "Thumbnail images must be smaller than the original image.");
+    return err.error_struct(ctx->context.get());
   }
-
 
   error = ctx->context->assign_thumbnail(image_handle->image, thumbnail_image);
   if (error != Error::Ok) {
@@ -1593,6 +1828,7 @@ struct heif_error heif_context_encode_thumbnail(struct heif_context* ctx,
     if (thumbnail_image) {
       *out_image_handle = new heif_image_handle;
       (*out_image_handle)->image = thumbnail_image;
+      (*out_image_handle)->context = ctx->context;
     }
     else {
       *out_image_handle = nullptr;
@@ -1637,4 +1873,26 @@ struct heif_error heif_context_add_XMP_metadata(struct heif_context* ctx,
   else {
     return error_Ok;
   }
+}
+
+
+struct heif_error heif_context_add_generic_metadata(struct heif_context* ctx,
+                                                    const struct heif_image_handle* image_handle,
+                                                    const void* data, int size,
+                                                    const char* item_type, const char* content_type)
+{
+  Error error = ctx->context->add_generic_metadata(image_handle->image, data, size,
+                                                   item_type, content_type);
+  if (error != Error::Ok) {
+    return error.error_struct(ctx->context.get());
+  }
+  else {
+    return error_Ok;
+  }
+}
+
+
+void heif_context_set_maximum_image_size_limit(struct heif_context* ctx, int maximum_width)
+{
+  ctx->context->set_maximum_image_size_limit(maximum_width);
 }

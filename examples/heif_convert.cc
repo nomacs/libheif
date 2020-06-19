@@ -36,6 +36,8 @@
 #include <iostream>
 #include <sstream>
 #include <assert.h>
+#include <algorithm>
+#include <cctype>
 
 #include <libheif/heif.h>
 
@@ -46,6 +48,7 @@
 #if HAVE_LIBPNG
 #include "encoder_png.h"
 #endif
+#include "encoder_y4m.h"
 
 #if defined(_MSC_VER)
 #include "getopt.h"
@@ -54,7 +57,7 @@
 #define UNUSED(x) (void)x
 
 static int usage(const char* command) {
-  fprintf(stderr, "USAGE: %s [-q quality] <filename> <output>\n", command);
+  fprintf(stderr, "USAGE: %s [-q quality 0..100] <filename> <output>\n", command);
   return 1;
 }
 
@@ -93,28 +96,39 @@ int main(int argc, char** argv)
   std::string output_filename(argv[optind++]);
 
   std::unique_ptr<Encoder> encoder;
-  if (output_filename.size() > 4 &&
-      output_filename.find(".jpg") == output_filename.size() - 4) {
-#if HAVE_LIBJPEG
-    static const int kDefaultJpegQuality = 90;
-    if (quality == -1) {
-      quality = kDefaultJpegQuality;
-    }
-    encoder.reset(new JpegEncoder(quality));
-#else
-    fprintf(stderr, "JPEG support has not been compiled in.\n");
-    return 1;
-#endif  // HAVE_LIBJPEG
-  }
 
-  if (output_filename.size() > 4 &&
-      output_filename.find(".png") == output_filename.size() - 4) {
-#if HAVE_LIBPNG
-    encoder.reset(new PngEncoder());
+  size_t dot_pos = output_filename.rfind('.');
+  if (dot_pos != std::string::npos) {
+    std::string suffix_lowercase = output_filename.substr(dot_pos+1);
+
+    std::transform(suffix_lowercase.begin(), suffix_lowercase.end(),
+                   suffix_lowercase.begin(), ::tolower);
+
+    if (suffix_lowercase == "jpg" || suffix_lowercase == "jpeg") {
+#if HAVE_LIBJPEG
+      static const int kDefaultJpegQuality = 90;
+      if (quality == -1) {
+        quality = kDefaultJpegQuality;
+      }
+      encoder.reset(new JpegEncoder(quality));
 #else
-    fprintf(stderr, "PNG support has not been compiled in.\n");
-    return 1;
+      fprintf(stderr, "JPEG support has not been compiled in.\n");
+      return 1;
+#endif  // HAVE_LIBJPEG
+    }
+
+    if (suffix_lowercase == "png") {
+#if HAVE_LIBPNG
+      encoder.reset(new PngEncoder());
+#else
+      fprintf(stderr, "PNG support has not been compiled in.\n");
+      return 1;
 #endif  // HAVE_LIBPNG
+    }
+
+    if (suffix_lowercase == "y4m") {
+      encoder.reset(new Y4MEncoder());
+    }
   }
 
   if (!encoder) {
@@ -192,7 +206,7 @@ int main(int argc, char** argv)
     err = heif_context_get_image_handle(ctx, image_IDs[idx], &handle);
     if (err.code) {
       std::cerr << "Could not read HEIF image " << idx << ": "
-          << err.message << "\n";
+                << err.message << "\n";
       return 1;
     }
 
@@ -200,17 +214,25 @@ int main(int argc, char** argv)
     struct heif_decoding_options* decode_options = heif_decoding_options_alloc();
     encoder->UpdateDecodingOptions(handle, decode_options);
 
+    int bit_depth = heif_image_handle_get_luma_bits_per_pixel(handle);
+    if (bit_depth < 0) {
+      heif_decoding_options_free(decode_options);
+      heif_image_handle_release(handle);
+      std::cerr << "Input image has undefined bit-depth\n";
+      return 1;
+    }
+
     struct heif_image* image;
     err = heif_decode_image(handle,
                             &image,
                             encoder->colorspace(has_alpha),
-                            encoder->chroma(has_alpha),
+                            encoder->chroma(has_alpha, bit_depth),
                             decode_options);
     heif_decoding_options_free(decode_options);
     if (err.code) {
       heif_image_handle_release(handle);
       std::cerr << "Could not decode HEIF image: " << idx << ": "
-          << err.message << "\n";
+                << err.message << "\n";
       return 1;
     }
 
@@ -229,6 +251,7 @@ int main(int argc, char** argv)
         heif_item_id depth_id;
         int nDepthImages = heif_image_handle_get_list_of_depth_image_IDs(handle, &depth_id, 1);
         assert(nDepthImages==1);
+        (void)nDepthImages;
 
         struct heif_image_handle* depth_handle;
         err = heif_image_handle_get_depth_image_handle(handle, depth_id, &depth_handle);
@@ -238,11 +261,13 @@ int main(int argc, char** argv)
           return 1;
         }
 
+        int bit_depth = heif_image_handle_get_luma_bits_per_pixel(depth_handle);
+
         struct heif_image* depth_image;
         err = heif_decode_image(depth_handle,
                                 &depth_image,
                                 encoder->colorspace(false),
-                                encoder->chroma(false),
+                                encoder->chroma(false, bit_depth),
                                 nullptr);
         if (err.code) {
           heif_image_handle_release(depth_handle);

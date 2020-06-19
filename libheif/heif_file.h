@@ -55,6 +55,8 @@ namespace heif {
 
     void new_empty_file();
 
+    void set_brand(heif_compression_format format);
+
     void write(StreamWriter& writer);
 
     int get_num_images() const { return static_cast<int>(m_infe_boxes.size()); }
@@ -93,6 +95,10 @@ namespace heif {
 
     heif_chroma get_image_chroma_from_configuration(heif_item_id imageID) const;
 
+    int get_luma_bits_per_pixel_from_configuration(heif_item_id imageID) const;
+
+    int get_chroma_bits_per_pixel_from_configuration(heif_item_id imageID) const;
+
     std::string debug_dump_boxes() const;
 
 
@@ -108,6 +114,9 @@ namespace heif {
     Error append_hvcC_nal_data(heif_item_id id, const uint8_t* data, size_t size);
     Error set_hvcC_configuration(heif_item_id id, const Box_hvcC::configuration& config);
 
+    void add_av1C_property(heif_item_id id);
+    Error set_av1C_configuration(heif_item_id id, const Box_av1C::configuration& config);
+
     void add_ispe_property(heif_item_id id, uint32_t width, uint32_t height);
 
     void append_iloc_data(heif_item_id id, const std::vector<uint8_t>& nal_packets);
@@ -120,7 +129,7 @@ namespace heif {
 
     void set_auxC_property(heif_item_id id, std::string type);
 
-    void set_color_profile(heif_item_id id, const std::shared_ptr<color_profile> profile);
+    void set_color_profile(heif_item_id id, const std::shared_ptr<const color_profile> profile);
 
   private:
 #if ENABLE_PARALLEL_TILE_DECODING
