@@ -60,6 +60,14 @@ if (UNIX)
   pkg_check_modules(LIBDE265 libde265)
   pkg_check_modules(X265 x265)
   pkg_check_modules(AOM aom)
+
+elseif(MSVC)
+  # nomacs patch for windows
+  find_package(libde265)
+
+  include_directories( 
+      ${LIBDE265_INCLUDE_DIR}
+  )
 endif()
 
 # Create libheif pkgconfig file
@@ -90,7 +98,7 @@ add_subdirectory (gdk-pixbuf)
 
 # write nomacs config file (for Windows)
 SET(LIBHEIF_LIBRARIES 
-      optimized ${CMAKE_CURRENT_BINARY_DIR}/libheif/Release/libheif.lib
-      debug ${CMAKE_CURRENT_BINARY_DIR}/libheif/Debug/libheifd.lib)
+      optimized ${CMAKE_CURRENT_BINARY_DIR}/libheif/Release/heif.lib
+      debug ${CMAKE_CURRENT_BINARY_DIR}/libheif/Debug/heif.lib)
 SET(LIBHEIF_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/libheif.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/libheifConfig.cmake)
