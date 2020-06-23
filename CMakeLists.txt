@@ -100,7 +100,8 @@ add_subdirectory (gdk-pixbuf)
 SET(libheif_LIBRARIES 
       optimized ${CMAKE_CURRENT_BINARY_DIR}/libheif/Release/heif.lib
       debug ${CMAKE_CURRENT_BINARY_DIR}/libheif/Debug/heif.lib)
-SET(libheif_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+# include: provide binary dir for heif_version.h
+SET(libheif_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/libheif.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/libheifConfig.cmake)
 
 message(STATUS "libheif include dir: ${libheif_INCLUDE_DIR}")
