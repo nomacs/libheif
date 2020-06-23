@@ -1,7 +1,7 @@
 # ** File generated automatically, do not modify **
 
-SET(libheif_INCLUDE_DIR @LIBHEIF_INCLUDE_DIR@)
-SET(libheif_LIBRARIES @LIBHEIF_LIBRARIES@) 
+SET(libheif_INCLUDE_DIR @libheif_INCLUDE_DIR@)
+SET(libheif_LIBRARIES @libheif_LIBRARIES@) 
 SET(libheif_BUILD_PATH @CMAKE_CURRENT_BINARY_DIR@)
 
 SET(libheif_FOUND true)
